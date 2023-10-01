@@ -27,7 +27,7 @@ void setup() {
 
 void loop() {
 
-  PID_Controller(2.5);
+  PID_Controller(3.5);
 
 }
 
