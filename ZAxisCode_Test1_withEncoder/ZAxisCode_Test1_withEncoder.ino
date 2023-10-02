@@ -1,9 +1,22 @@
 const int forwards = 11;
 const int backwards = 10;
+#define ENCA 2 // brown
+#define ENCB 4 // yellow
+
+// motor encoder ouput pulse per rotation
+#define ENC_CPR 1024
+
+int pos = 0;
+int currentStateA, lastStateA;
+
+// variable used for estimates from PID
+long prevT = 0;
+float eprev = 0;
+float eintegral = 0;
 
 int choice;
-int recVal;
-float pos, init_pos, inches;
+float pos_linear_actuator, init_pos_linear_actuator, inches;
+bool PID_Done;
 
 // the setup routine runs once when you press reset:
 void setup() {
@@ -11,9 +24,15 @@ void setup() {
   Serial.begin(9600);
   pinMode(backwards,OUTPUT);
   pinMode(forwards,OUTPUT);
-  //Setup channel A
-  pinMode(12, OUTPUT); //Initiates Motor Channel A pin
-  pinMode(9, OUTPUT); //Initiates Brake Channel A pin
+  pinMode(ENCA, INPUT);
+  pinMode(ENCB, INPUT);
+  // setup channel A
+  pinMode(12, OUTPUT);  // initiates Motor Channel A pin
+  pinMode(9, OUTPUT);   // initiates Brake Channel A pin
+
+
+  attachInterrupt(digitalPinToInterrupt(ENCA), readEncoder, RISING); // read encoder values everytime ENCA rises
+
 }
 
 // the loop routine runs over and over again forever:
@@ -27,7 +46,8 @@ void loop() {
   choice = Serial.parseInt(); //Reading the Input integer from Serial port.
 
   inches = 1; 
-  recVal = 1;
+  //Serial.print("Choice: ");
+  //Serial.println(choice);
   
   switch (choice) {
     case 1:
@@ -37,48 +57,27 @@ void loop() {
       MoveDown(inches);
       break;
     case 3:
-      MoveMotorCW(recVal);
-      break;
-    case 4:
-      MoveMotorCCW(recVal);
+      PID_Controller(2);
       break;
     default:
       break;
   }
+
   delay(100);
 }
 
-void MoveMotorCW(int recVal){
-  digitalWrite(12, HIGH);    //Establishes forward direction of Channel A
-  digitalWrite(9, LOW);     //Disengage the Brake for Channel A
-  analogWrite(3, 255);       //Spins the motor on Channel A at full speed
-  delay(recVal * 1000);
-  analogWrite(3,0);          //255 -> full speed, 123 -> half speed
-  digitalWrite(9, HIGH);     //Eengage the Brake for Channel A
-  delay(2000);
-}
-
-void MoveMotorCCW(int recVal) {
-  digitalWrite(12, LOW);     //Establishes backward direction of Channel A
-  digitalWrite(9, LOW);      //Disengage the Brake for Channel A
-  analogWrite(3, 255);       //Spins the motor on Channel A at full speed
-  delay(recVal * 1000);
-  analogWrite(3,0);          //255 -> full speed, 123 -> half speed
-  digitalWrite(9, HIGH);     //Eengage the Brake for Channel A
-  delay(2000);
-}
 
 float readPotentiometer(void) {
   return 0.0376214 * (analogRead(A5) - 456) + 0.875;
 }
 
 void MoveDown(float in) {
-  init_pos = readPotentiometer();
-  pos = readPotentiometer();
-  while (pos > init_pos - in){
+  init_pos_linear_actuator = readPotentiometer();
+  pos_linear_actuator = readPotentiometer();
+  while (pos_linear_actuator > init_pos_linear_actuator - in){
     analogWrite(backwards, 255);
     analogWrite(forwards, 0); //Activate the relay one direction, they must be different to move the motor
-    pos = readPotentiometer();
+    pos_linear_actuator = readPotentiometer();
     delay(250);
   }
   analogWrite(backwards, 255);
@@ -88,16 +87,126 @@ void MoveDown(float in) {
 }
 
 void MoveUp (float in) {
-  init_pos = readPotentiometer();
-  pos = readPotentiometer();
-  while (pos < init_pos + in){
+  init_pos_linear_actuator = readPotentiometer();
+  pos_linear_actuator = readPotentiometer();
+  while (pos_linear_actuator < init_pos_linear_actuator + in){
     analogWrite(backwards, 0);
     analogWrite(forwards, 255); //Activate the relay one direction, they must be different to move the motor
-    pos = readPotentiometer();
+    pos_linear_actuator = readPotentiometer();
     delay(250);
   }
   analogWrite(backwards, 255);
   analogWrite(forwards, 255);   //Deactivate both relays to brake the motor
   delay(500);
   return;
+}
+
+void readEncoder() {                    // this function is called whenever ENCA rises
+	// Read the current state of A
+	currentStateA = digitalRead(ENCA);
+
+	// If last and current state of A are different, then pulse occurred
+	// React to only 1 state change to avoid double count
+	if (currentStateA != lastStateA  && currentStateA == 1){
+
+		// If the B state is different than the A state then
+		if (digitalRead(ENCB) != currentStateA) {
+		  // the encoder is rotating CCW so decrement
+			pos--; 
+		} else {
+			// Encoder is rotating CW so increment
+			pos++;
+		}
+  }
+}
+
+void setMotor(int dir, int pwr) {
+  analogWrite(3, pwr);              // spins motor on Channel A at pwr value
+  if(dir == 1) {                    // move motor CW
+    digitalWrite(12, HIGH);         
+    digitalWrite(9, LOW);
+
+  } else if (dir == -1) {           // move motor CCW
+    digitalWrite(12, LOW);
+    digitalWrite(9, LOW);
+
+  } else {                          // brake motor
+    digitalWrite(12, LOW);
+    digitalWrite(9, HIGH);
+  }
+}
+
+void PID_Controller(float num_revs) {     // (+) -> CW, (-) -> CCW
+  // target position obtained from parameter (in rev)
+
+  // PID constants
+  float kp, kd, ki;
+
+  kp = 4.8;
+  kd = 0.02;
+  ki = 0.038;
+  // this parameters have 6/1024 or less for [1, 3.75]
+
+
+  // set target position (in pulses)
+  int target = num_revs * ENC_CPR;                // (+) -> CW, (-) -> CCW
+
+  long currT = micros();                          // current time in microseconds
+
+  float deltaT = ((float)(currT-prevT))/1.0e6;    // change in time in seconds
+  prevT = currT;
+
+  // error e(t)
+  int e = target - pos;                           // adjust if neeeded
+
+  // derivative 
+  float dedt = (e-eprev)/(deltaT);                // finite difference approximation for derivative component
+
+  // integral 
+  eintegral = eintegral + e*deltaT;               // finite difference approximation for integral component
+
+  // control signal u(t)
+  float u = kp*e + kd*dedt + ki*eintegral;        // this signal tells plant direction and speed to turn motor
+
+  // motor power
+  float pwr = fabs(u);
+  if (pwr > 255) {
+    pwr = 255;
+  }
+
+  // motor direction 
+  int dir = 1;
+  if (u < 0) {
+    dir = -1;
+  }
+
+  // signal the motor
+  setMotor(dir, pwr);
+
+  // store previous error
+  eprev = e;
+
+  
+  // print target and measured positions to test algorithm
+  Serial.print("Target: ");
+  Serial.print(target);
+  Serial.print(" Position: ");
+  Serial.print(pos);
+  Serial.println();
+
+  int myTimerMicros;
+  int pos_prev = pos;
+    
+  if (pos_prev != pos) {
+    // restart the TIMER
+    myTimerMicros = micros();
+
+    // update to the new state
+    pos_prev = pos;
+  } 
+    
+  // has the 3 second TIMER expired? if so do this!
+  if (micros() - myTimerMicros >= (3000000)) {    // time difference
+    Serial.print("done with actuator!");
+  }
 }
