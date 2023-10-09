@@ -6,6 +6,9 @@
 
 int pos = 0;
 int currentStateA, lastStateA;
+float arr_num_revs[] = {1, -1, 2};
+int i;
+bool PID_Done;
 
 // variable used for estimates from PID
 long prevT = 0;
@@ -26,7 +29,15 @@ void setup() {
 }
 
 void loop() {
-  PID_Controller(2);
+  for (i = 0; i < sizeof(arr_num_revs); i++) {
+    while (true) {
+      PID_Controller(arr_num_revs[i]);
+      if (PID_Done == true) {
+        delay(500);
+        break;
+      }
+    }
+  }
 }
 
 void readEncoder() {                    // this function is called whenever ENCA rises
@@ -66,6 +77,7 @@ void setMotor(int dir, int pwr) {
 
 void PID_Controller(float num_revs) {     // (+) -> CW, (-) -> CCW
   // target position obtained from parameter (in rev)
+  PID_Done = false;
 
   // PID constants
   float kp, kd, ki;
@@ -114,14 +126,6 @@ void PID_Controller(float num_revs) {     // (+) -> CW, (-) -> CCW
   // store previous error
   eprev = e;
 
-  
-  // print target and measured positions to test algorithm
-  Serial.print("Target: ");
-  Serial.print(target);
-  Serial.print(" Position: ");
-  Serial.print(pos);
-  Serial.println();
-
   int myTimerMicros;
   int pos_prev = pos;
     
@@ -135,6 +139,17 @@ void PID_Controller(float num_revs) {     // (+) -> CW, (-) -> CCW
     
   // has the 3 second TIMER expired? if so do this!
   if (micros() - myTimerMicros >= (3000000)) {    // time difference
-    Serial.print("done with actuator!");
-  }
+    //Serial.println("done with actuator!");
+    pos = 0;
+    PID_Done = true;
+  } //else {
+    // print target and measured positions to test algorithm
+    Serial.print("Target: ");
+    Serial.print(target);
+    Serial.print(" Position: ");
+    Serial.print(pos);
+    Serial.println();   
+  //}
+  
 }
+
