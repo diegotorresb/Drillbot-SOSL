@@ -14,8 +14,15 @@ long prevT = 0;
 float eprev = 0;
 float eintegral = 0;
 
-int choice;
-float pos_linear_actuator, init_pos_linear_actuator, inches;
+// variables for moving encoder functions
+float pos_linear_actuator, init_pos_linear_actuator;
+
+// variables for void loop
+int currentStep = 1;
+int inches;
+float numRevs;
+
+// boolean to change if PID algorithm is done
 bool PID_Done;
 
 // the setup routine runs once when you press reset:
@@ -39,31 +46,34 @@ void setup() {
 void loop() {
   //FORWARD 559 --> 4.75 in
   //BACKWARD 456 --> 0.875 in
-
-  while (Serial.available() == 0)   
-  {  }  
-
-  choice = Serial.parseInt(); //Reading the Input integer from Serial port.
-
   inches = 1; 
-  //Serial.print("Choice: ");
-  //Serial.println(choice);
-  
-  switch (choice) {
-    case 1:
-      MoveUp(inches);
-      break;
-    case 2:
-      MoveDown(inches);
-      break;
-    case 3:
-      PID_Controller(2);
-      break;
-    default:
-      break;
-  }
+  numRevs = -1.5;
 
-  delay(100);
+  if (currentStep == 1) {        // Move Actuator Up
+    MoveUp(inches);
+    Serial.print("Actuator moved up ");
+    Serial.print(inches);
+    Serial.println(" inch(es)");
+    delay(1500);
+    currentStep++;
+  } else if (currentStep == 2) { // Turn DC Motor arbitratry Num of Revs
+    PID_Controller(numRevs, &PID_Done);
+    if(PID_Done == true) {
+      currentStep++;
+      PID_Tester();
+      delay(1000);
+    }
+  } else if (currentStep == 3) { // Move Actuator Down
+    MoveDown(inches);
+    Serial.print("Actuator moved down ");
+    Serial.print(inches);
+    Serial.println(" inch(es)");
+    delay(1500);
+    currentStep++;
+  } else if (currentStep == 4) { // Pseudo Routine is Done
+    Serial.println("Done with routine");
+    delay(15000);
+  }
 }
 
 
@@ -136,8 +146,9 @@ void setMotor(int dir, int pwr) {
   }
 }
 
-void PID_Controller(float num_revs) {     // (+) -> CW, (-) -> CCW
+void PID_Controller(float num_revs, bool* PID_Done) {     // (+) -> CW, (-) -> CCW
   // target position obtained from parameter (in rev)
+  *PID_Done = false;
 
   // PID constants
   float kp, kd, ki;
@@ -186,14 +197,6 @@ void PID_Controller(float num_revs) {     // (+) -> CW, (-) -> CCW
   // store previous error
   eprev = e;
 
-  
-  // print target and measured positions to test algorithm
-  Serial.print("Target: ");
-  Serial.print(target);
-  Serial.print(" Position: ");
-  Serial.print(pos);
-  Serial.println();
-
   int myTimerMicros;
   int pos_prev = pos;
     
@@ -205,8 +208,29 @@ void PID_Controller(float num_revs) {     // (+) -> CW, (-) -> CCW
     pos_prev = pos;
   } 
     
-  // has the 3 second TIMER expired? if so do this!
-  if (micros() - myTimerMicros >= (3000000)) {    // time difference
-    Serial.print("done with actuator!");
+  // has the 3 second TIMER expired? if so do this
+  if (micros() - myTimerMicros >= (8000000)) {    // time difference
+    // done with actuator!
+    *PID_Done = true;
+  } /*else {
+    // print target and measured positions to test algorithm
+    Serial.print("Target: ");
+    Serial.print(target);
+    Serial.print(" Position: ");
+    Serial.print(pos);
+    Serial.println();   
   }
+  */
+  
+}
+
+// function to test PID algorithm's accuracy
+void PID_Tester() {
+  Serial.print("Turned: ");
+  Serial.print(pos/1024.0, 6);
+  Serial.print(" revs | Goal: ");
+  Serial.print(numRevs, 2);
+  Serial.print(" revs -> error of ");
+  Serial.print(abs(numRevs*ENC_CPR-pos)/1024.0*360.0);
+  Serial.println(" degrees");
 }

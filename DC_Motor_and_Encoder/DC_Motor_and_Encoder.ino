@@ -6,9 +6,8 @@
 
 int pos = 0;
 int currentStateA, lastStateA;
-float arr_num_revs[] = {1, -1, 2};
-int i;
 bool PID_Done;
+float numRevs;
 
 // variable used for estimates from PID
 long prevT = 0;
@@ -29,18 +28,16 @@ void setup() {
 }
 
 void loop() {
-  for (i = 0; i < sizeof(arr_num_revs); i++) {
-    while (true) {
-      PID_Controller(arr_num_revs[i]);
-      if (PID_Done == true) {
-        delay(500);
-        break;
-      }
-    }
+  numRevs = -1.4;
+
+  PID_Controller(numRevs, &PID_Done);
+  if(PID_Done == true) {
+    PID_Tester();
+    delay(4000);
   }
 }
 
-void readEncoder() {                    // this function is called whenever ENCA rises
+void readEncoder() { // this function is called whenever ENCA rises
 	// Read the current state of A
 	currentStateA = digitalRead(ENCA);
 
@@ -75,9 +72,9 @@ void setMotor(int dir, int pwr) {
   }
 }
 
-void PID_Controller(float num_revs) {     // (+) -> CW, (-) -> CCW
+void PID_Controller(float num_revs, bool* PID_Done) { // (+) -> CW, (-) -> CCW
   // target position obtained from parameter (in rev)
-  PID_Done = false;
+  *PID_Done = false;
 
   // PID constants
   float kp, kd, ki;
@@ -137,19 +134,29 @@ void PID_Controller(float num_revs) {     // (+) -> CW, (-) -> CCW
     pos_prev = pos;
   } 
     
-  // has the 3 second TIMER expired? if so do this!
+  // has the 3 second TIMER expired? if so do this
   if (micros() - myTimerMicros >= (3000000)) {    // time difference
-    //Serial.println("done with actuator!");
-    pos = 0;
-    PID_Done = true;
-  } //else {
+    // done with actuator!
+    *PID_Done = true;
+  } /*else {
     // print target and measured positions to test algorithm
     Serial.print("Target: ");
     Serial.print(target);
     Serial.print(" Position: ");
     Serial.print(pos);
     Serial.println();   
-  //}
+  }
+  */
   
 }
 
+// function to test PID algorithm's accuracy 
+void PID_Tester() {
+  Serial.print("Turned: ");
+  Serial.print(pos/1024.0, 6);
+  Serial.print(" revs | Goal: ");
+  Serial.print(numRevs, 2);
+  Serial.print(" revs -> error of ");
+  Serial.print(abs(numRevs*ENC_CPR-pos)/1024.0*360.0);
+  Serial.println(" degrees");
+}
