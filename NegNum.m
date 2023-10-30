@@ -1,7 +1,7 @@
 %MATLAB Code for Serial Communication with Arduinofclose(instrfind);
 delete(instrfind);
 keep = true;
-x=serialport('COM8', 9600);
+x=serialport('COM8', 9600);%%remember, the com port must match. use clear all to return access to arduino/matlab
 fopen(x);
 pause(1);
 while (keep == true)
